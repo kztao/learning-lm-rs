@@ -71,7 +71,32 @@ pub fn masked_softmax(y: &mut Tensor<f32>) {
 }
 
 pub fn rms_norm(y: &mut Tensor<f32>, x: &Tensor<f32>, w: &Tensor<f32>, epsilon: f32) {
-    todo!("实现 rms_norm，计算前做一些必要的检查会帮助你后续调试")
+    let x_shape = x.shape();
+    let last_dim = *x_shape.last().unwrap();
+    assert!(w.size() == last_dim, "权重向量的长度必须等于输入张量的最后一个维度");
+    
+    let batch_size = x.size() / last_dim;
+    let y_data = unsafe { y.data_mut() };
+    let x_data = x.data();
+    let w_data = w.data();
+
+    // 按行处理
+    for i in 0..batch_size {
+        let offset = i * last_dim;
+        
+        // 计算当前行的RMS
+        let mut sum_squares = 0.0;
+        for j in 0..last_dim {
+            sum_squares += x_data[offset + j].powi(2);
+        }
+        let mean_squares = sum_squares / last_dim as f32;
+        let rms = (mean_squares + epsilon).sqrt();
+
+        // 应用归一化和权重
+        for j in 0..last_dim {
+            y_data[offset + j] = (x_data[offset + j] / rms) * w_data[j];
+        }
+    }
 }
 
 // y = silu(x) * y
@@ -83,13 +108,48 @@ pub fn swiglu(y: &mut Tensor<f32>, x: &Tensor<f32>) {
     // let _y = unsafe { y.data_mut() };
     // let _x = x.data();
 
-    todo!("实现 silu，这里给了一些前期准备工作的提示，你可以参考")
+    let len = y.size();
+    assert!(len == x.size());
+
+    let y_data = unsafe { y.data_mut() };
+    let x_data = x.data();
+
+    for i in 0..len {
+        let silu_value = x_data[i] * (1.0 / (1.0 + (-x_data[i]).exp()));
+        y_data[i] *= silu_value;
+    }
 }
 
 // C = beta * C + alpha * A @ B^T
 // hint: You don't need to do an explicit transpose of B
 pub fn matmul_transb(c: &mut Tensor<f32>, beta: f32, a: &Tensor<f32>, b: &Tensor<f32>, alpha: f32) {
-    todo!("实现 matmul_transb，计算前做一些必要的检查会帮助你后续调试");
+    //todo!("实现 matmul_transb，计算前做一些必要的检查会帮助你后续调试");
+    let [m, k] = a.shape().to_owned().try_into().unwrap(); 
+    let [n, k_] = b.shape().to_owned().try_into().unwrap();
+    assert!(k == k_, "Incompatible matrix dimensions for matmul_transb");
+    //assert!(c.shape() == &[m, n], "Incompatible output matrix dimensions for matmul_transb");
+
+    let mut c_data = unsafe { c.data_mut() };
+    let a_data = a.data();
+    let b_data = b.data();
+
+    // Clear the output matrix if beta is zero
+    if beta == 0.0 {
+        c_data.iter_mut().for_each(|x| *x = 0.0);
+    } else if beta != 1.0 {
+        c_data.iter_mut().for_each(|x| *x *= beta);
+    }
+
+    // Perform the matrix multiplication
+    for i in 0..m {
+        for j in 0..n  {
+            let mut sum = 0.0;
+            for l in 0..k {
+                sum += a_data[i * k + l] * b_data[j * k + l];
+            }
+            c_data[i * n + j] += alpha * sum;
+        }
+    }
 }
 
 // Dot product of two tensors (treated as vectors)
